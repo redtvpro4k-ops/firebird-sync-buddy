@@ -230,14 +230,14 @@ export function FirebirdSyncDashboard() {
     setIsSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke('sync-firebird', {
-        body: { trigger: 'manual', timestamp: new Date().toISOString() }
+        body: { action: 'sync' }
       });
 
       if (error) throw error;
 
       toast({
-        title: "Sync Triggered",
-        description: "Manual synchronization has been started",
+        title: "Sincronización Iniciada",
+        description: "La sincronización manual ha sido iniciada exitosamente",
       });
 
       // Refresh logs after a delay (temporarily disabled)
@@ -249,7 +249,7 @@ export function FirebirdSyncDashboard() {
       console.error('Error triggering sync:', error);
       toast({
         title: "Error",
-        description: "Failed to trigger manual sync",
+        description: `Failed to trigger manual sync: ${error.message || error}`,
         variant: "destructive",
       });
     } finally {
