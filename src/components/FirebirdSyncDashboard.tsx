@@ -99,27 +99,53 @@ export function FirebirdSyncDashboard() {
 
   const updateServerConfig = async (server: 'A' | 'B', config: ServerConfig) => {
     try {
-      // Update the corresponding secrets
-      const secretPrefix = server === 'A' ? 'FIREBIRD_A' : 'FIREBIRD_B';
+      console.log(`Updating configuration for Server ${server}`);
       
-      // Note: In a real implementation, you would need to call individual secret update functions
-      // For now, we'll just update the local state and show a message
+      // Validate required fields
+      if (!config.host || !config.port || !config.user || !config.password) {
+        throw new Error('Todos los campos son requeridos: host, puerto, usuario y contraseña');
+      }
+
+      // Call the edge function to update server configuration
+      const { data, error } = await supabase.functions.invoke('update-server-config', {
+        body: {
+          server,
+          config
+        }
+      });
+
+      if (error) {
+        console.error('Error calling update-server-config function:', error);
+        throw error;
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to update server configuration');
+      }
+
+      // Update the local state only after successful remote update
       setServerConfigs(prev => ({
         ...prev,
         [`server${server}`]: config
       }));
 
       toast({
-        title: "Configuration Updated",
-        description: `Server ${server} configuration has been updated locally. Please update the secrets in Supabase manually.`,
+        title: "Configuración Actualizada",
+        description: `La configuración del Servidor ${server} ha sido actualizada exitosamente.`,
       });
       
       setConfigDialogOpen(false);
+      
+      // Refresh server status to reflect changes
+      setTimeout(() => {
+        checkServerStatus();
+      }, 1000);
+
     } catch (error) {
       console.error('Error updating server config:', error);
       toast({
         title: "Error",
-        description: "Failed to update server configuration",
+        description: error.message || "Failed to update server configuration",
         variant: "destructive",
       });
     }

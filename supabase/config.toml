@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.notify-server-status]  
 verify_jwt = false
+
+[functions.update-server-config]
+verify_jwt = true
