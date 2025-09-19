@@ -3,8 +3,11 @@ project_id = "hkmfsfxpywdoziriftok"
 [functions.sync-firebird]
 verify_jwt = false
 
-[functions.notify-server-status]  
+[functions.notify-server-status]
 verify_jwt = false
 
 [functions.update-server-config]
+verify_jwt = true
+
+[functions.get-server-configs]
 verify_jwt = true

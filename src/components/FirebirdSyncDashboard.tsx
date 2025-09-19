@@ -234,8 +234,38 @@ export function FirebirdSyncDashboard() {
     }
   };
 
+  const loadConfigs = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('get-server-configs');
+      if (error) throw error;
+      if (data?.success && data.data) {
+        setServerConfigs((prev) => ({
+          serverA: {
+            host: data.data.serverA.host || prev.serverA.host,
+            port: data.data.serverA.port || prev.serverA.port,
+            user: data.data.serverA.user || prev.serverA.user,
+            password: ''
+          },
+          serverB: {
+            host: data.data.serverB.host || prev.serverB.host,
+            port: data.data.serverB.port || prev.serverB.port,
+            user: data.data.serverB.user || prev.serverB.user,
+            password: ''
+          }
+        }));
+      }
+    } catch (e: any) {
+      console.error('Error loading server configs:', e);
+      toast({
+        title: 'Aviso',
+        description: 'No se pudieron cargar las IP desde Supabase. Usando valores locales.',
+      });
+    }
+  };
+
   useEffect(() => {
     // fetchSyncLogs(); // Temporarily disabled
+    loadConfigs();
     fetchTablesInfo();
     checkServerStatus();
   }, []);
