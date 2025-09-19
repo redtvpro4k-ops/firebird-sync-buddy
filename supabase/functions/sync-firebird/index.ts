@@ -152,73 +152,100 @@ async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean
       'RDB$INDICES'
     ];
     
-    // Mock table data for demonstration
-    const mockTables = [
-      {
-        name: 'M3U_PLAYLISTS',
-        columns: [
-          { name: 'ID', type: 'UUID', nullable: false },
-          { name: 'NAME', type: 'VARCHAR(255)', nullable: false },
-          { name: 'DESCRIPTION', type: 'VARCHAR(500)', nullable: true },
-          { name: 'FILE_URL', type: 'VARCHAR(500)', nullable: false },
-          { name: 'UPLOADED_BY', type: 'UUID', nullable: false },
-          { name: 'IS_ACTIVE', type: 'BOOLEAN', nullable: false },
-          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
-          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
-        ]
-      },
-      {
-        name: 'CHANNELS',
-        columns: [
-          { name: 'ID', type: 'UUID', nullable: false },
-          { name: 'PLAYLIST_ID', type: 'UUID', nullable: false },
-          { name: 'NAME', type: 'VARCHAR(255)', nullable: false },
-          { name: 'URL', type: 'VARCHAR(500)', nullable: false },
-          { name: 'LOGO_URL', type: 'VARCHAR(500)', nullable: true },
-          { name: 'GROUP_TITLE', type: 'VARCHAR(255)', nullable: true },
-          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false }
-        ]
-      },
-      {
-        name: 'PROFILES',
-        columns: [
-          { name: 'ID', type: 'UUID', nullable: false },
-          { name: 'USER_ID', type: 'UUID', nullable: false },
-          { name: 'DISPLAY_NAME', type: 'VARCHAR(255)', nullable: true },
-          { name: 'AVATAR_URL', type: 'VARCHAR(500)', nullable: true },
-          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
-          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
-        ]
-      },
-      {
-        name: 'USER_ROLES',
-        columns: [
-          { name: 'ID', type: 'UUID', nullable: false },
-          { name: 'USER_ID', type: 'UUID', nullable: false },
-          { name: 'ROLE', type: 'VARCHAR(50)', nullable: false }
-        ]
-      },
-      {
-        name: 'ADS_CONFIG',
-        columns: [
-          { name: 'ID', type: 'UUID', nullable: false },
-          { name: 'VIDEO_ADS_ENABLED', type: 'BOOLEAN', nullable: false },
-          { name: 'BANNER_ENABLED', type: 'BOOLEAN', nullable: false },
-          { name: 'INTERSTITIAL_ENABLED', type: 'BOOLEAN', nullable: false },
-          { name: 'ADS_FREQUENCY', type: 'INTEGER', nullable: false },
-          { name: 'META_PIXEL_ID', type: 'VARCHAR(255)', nullable: true },
-          { name: 'META_APP_ID', type: 'VARCHAR(255)', nullable: true },
-          { name: 'GOOGLE_ADS_CLIENT_ID', type: 'VARCHAR(255)', nullable: true },
-          { name: 'GOOGLE_ADS_SLOT_ID', type: 'VARCHAR(255)', nullable: true },
-          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
-          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
-        ]
+    // Query real tables from Firebird system tables
+    const tablesQuery = `
+      SELECT DISTINCT r.RDB$RELATION_NAME as TABLE_NAME
+      FROM RDB$RELATIONS r
+      WHERE (r.RDB$SYSTEM_FLAG = 0 OR r.RDB$SYSTEM_FLAG IS NULL)
+      AND r.RDB$RELATION_TYPE = 0
+      ORDER BY r.RDB$RELATION_NAME
+    `;
+
+    const tablesResult = await conn.query(tablesQuery);
+    console.log('Tables found:', tablesResult.length);
+
+    const tables = [];
+    
+    for (const tableRow of tablesResult) {
+      const tableName = tableRow.TABLE_NAME?.trim();
+      if (!tableName) continue;
+
+      // Get columns for this table
+      const columnsQuery = `
+        SELECT 
+          rf.RDB$FIELD_NAME as COLUMN_NAME,
+          f.RDB$FIELD_TYPE as FIELD_TYPE,
+          f.RDB$FIELD_LENGTH as FIELD_LENGTH,
+          f.RDB$FIELD_SCALE as FIELD_SCALE,
+          rf.RDB$NULL_FLAG as NULL_FLAG,
+          f.RDB$FIELD_SUB_TYPE as FIELD_SUB_TYPE
+        FROM RDB$RELATION_FIELDS rf
+        JOIN RDB$FIELDS f ON rf.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME
+        WHERE rf.RDB$RELATION_NAME = ?
+        ORDER BY rf.RDB$FIELD_POSITION
+      `;
+
+      try {
+        const columnsResult = await conn.query(columnsQuery, [tableName]);
+        
+        const columns = columnsResult.map((col: any) => {
+          const columnName = col.COLUMN_NAME?.trim();
+          const fieldType = col.FIELD_TYPE;
+          const fieldLength = col.FIELD_LENGTH;
+          const fieldScale = col.FIELD_SCALE;
+          const isNullable = !col.NULL_FLAG;
+          const subType = col.FIELD_SUB_TYPE;
+
+          // Map Firebird field types to readable names
+          let type = 'UNKNOWN';
+          switch (fieldType) {
+            case 7: type = 'SMALLINT'; break;
+            case 8: type = 'INTEGER'; break;
+            case 16: type = 'BIGINT'; break;
+            case 10: type = 'FLOAT'; break;
+            case 27: type = 'DOUBLE'; break;
+            case 12: type = 'DATE'; break;
+            case 13: type = 'TIME'; break;
+            case 35: type = 'TIMESTAMP'; break;
+            case 14: 
+              if (subType === 1) type = 'CHAR';
+              else type = `VARCHAR(${fieldLength})`;
+              break;
+            case 37: 
+              if (subType === 1) type = 'CHAR';
+              else type = `VARCHAR(${fieldLength})`;
+              break;
+            case 261: type = 'BLOB'; break;
+            default: 
+              type = `TYPE_${fieldType}`;
+              if (fieldLength) type += `(${fieldLength})`;
+          }
+
+          return {
+            name: columnName,
+            type: type,
+            nullable: isNullable
+          };
+        });
+
+        tables.push({
+          name: tableName,
+          columns: columns
+        });
+
+      } catch (colError) {
+        console.error(`Error getting columns for table ${tableName}:`, colError);
+        tables.push({
+          name: tableName,
+          columns: [],
+          error: `Could not retrieve columns: ${colError.message}`
+        });
       }
-    ];
+    }
     
     return {
       success: true,
-      tables: mockTables
+      tables: tables
     };
     
   } catch (error) {
@@ -325,14 +352,14 @@ async function syncDatabases(): Promise<{ success: boolean; message: string; det
     sourceConn = await sourceClient.connect();
     targetConn = await targetClient.connect();
 
-    // Get list of tables to sync (you'll need to customize this)
-    const tablesToSync = [
-      'M3U_PLAYLISTS',
-      'CHANNELS',
-      'PROFILES',
-      'USER_ROLES',
-      'ADS_CONFIG'
-    ];
+    // Get list of tables to sync dynamically from source database
+    const tablesInfoResult = await getTablesInfo(sourceConfig);
+    if (!tablesInfoResult.success) {
+      throw new Error(`Failed to get tables from source: ${tablesInfoResult.error}`);
+    }
+    
+    const tablesToSync = tablesInfoResult.tables.map(table => table.name);
+    console.log(`Found ${tablesToSync.length} tables to sync:`, tablesToSync);
 
     const syncResults = [];
 
