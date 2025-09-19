@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Firebird connection configuration
+// Configuration interface for Firebird servers
 interface FirebirdConfig {
   host: string;
   port: number;
@@ -15,365 +15,170 @@ interface FirebirdConfig {
   password: string;
 }
 
-// Simple Firebird client using TCP connection
-class FirebirdClient {
-  private config: FirebirdConfig;
+// Get the Firebird API service URL from environment
+const FIREBIRD_API_URL = Deno.env.get('FIREBIRD_API_URL') || 'http://localhost:5000';
 
-  constructor(config: FirebirdConfig) {
-    this.config = config;
-  }
-
-  async connect(): Promise<Deno.TcpConn> {
-    try {
-      const conn = await Deno.connect({
-        hostname: this.config.host,
-        port: this.config.port,
-      });
-      console.log(`Connected to Firebird at ${this.config.host}:${this.config.port}`);
-      return conn;
-    } catch (error) {
-      console.error(`Failed to connect to Firebird: ${error.message}`);
-      throw error;
+// Get server configurations from environment variables
+function getServerConfigs(): { serverA: FirebirdConfig; serverB: FirebirdConfig } {
+  return {
+    serverA: {
+      host: Deno.env.get('FIREBIRD_A_HOST') || '',
+      port: parseInt(Deno.env.get('FIREBIRD_A_PORT') || '3050'),
+      database: Deno.env.get('FIREBIRD_A_DATABASE') || '/dbs/fdb/bell.fdb',
+      user: Deno.env.get('FIREBIRD_A_USER') || '',
+      password: Deno.env.get('FIREBIRD_A_PASSWORD') || '',
+    },
+    serverB: {
+      host: Deno.env.get('FIREBIRD_B_HOST') || '',
+      port: parseInt(Deno.env.get('FIREBIRD_B_PORT') || '3050'),
+      database: Deno.env.get('FIREBIRD_B_DATABASE') || '/dbs/fdb/bell.fdb',
+      user: Deno.env.get('FIREBIRD_B_USER') || '',
+      password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
     }
-  }
-
-  async executeQuery(conn: Deno.TcpConn, query: string): Promise<any[]> {
-    try {
-      // This is a simplified implementation
-      // In a real scenario, you would implement the Firebird protocol
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
-      
-      // Send authentication and query
-      await conn.write(encoder.encode(query));
-      
-      // Read response (simplified)
-      const buffer = new Uint8Array(4096);
-      const bytesRead = await conn.read(buffer);
-      
-      if (bytesRead) {
-        const response = decoder.decode(buffer.subarray(0, bytesRead));
-        console.log(`Query executed: ${query}`);
-        return []; // Return empty array for now - implement actual parsing
-      }
-      
-      return [];
-    } catch (error) {
-      console.error(`Query execution failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  async close(conn: Deno.TcpConn) {
-    try {
-      conn.close();
-      console.log('Firebird connection closed');
-    } catch (error) {
-      console.error(`Error closing connection: ${error.message}`);
-    }
-  }
+  };
 }
 
-async function checkServerStatus(config: FirebirdConfig): Promise<{ success: boolean; online: boolean; error?: string; responseTime?: number }> {
-  const startTime = Date.now();
-  let conn: Deno.TcpConn | null = null;
-  
+// Check server status via HTTP API
+async function checkServerStatus(): Promise<any> {
   try {
-    const client = new FirebirdClient(config);
+    console.log('Checking server status via Firebird API...');
+    console.log('Using Firebird API URL:', FIREBIRD_API_URL);
+    const configs = getServerConfigs();
     
-    // Set a shorter timeout for connection attempts (10 seconds instead of default)
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+    console.log('Server A config:', { host: configs.serverA.host, port: configs.serverA.port, database: configs.serverA.database, user: configs.serverA.user });
+    console.log('Server B config:', { host: configs.serverB.host, port: configs.serverB.port, database: configs.serverB.database, user: configs.serverB.user });
+    
+    const response = await fetch(`${FIREBIRD_API_URL}/api/firebird/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        serverA: configs.serverA,
+        serverB: configs.serverB
+      })
     });
-    
-    const connectPromise = client.connect();
-    conn = await Promise.race([connectPromise, timeoutPromise]);
-    
-    const responseTime = Date.now() - startTime;
-    
-    console.log(`Successfully connected to ${config.host}:${config.port} in ${responseTime}ms`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('HTTP error response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('Server status response:', data);
     
     return {
       success: true,
-      online: true,
-      responseTime
+      data: {
+        serverA: {
+          host: data.serverA.host,
+          online: data.serverA.online,
+          responseTime: data.serverA.responseTime,
+          error: data.serverA.error
+        },
+        serverB: {
+          host: data.serverB.host,
+          online: data.serverB.online,
+          responseTime: data.serverB.responseTime,
+          error: data.serverB.error
+        }
+      }
     };
-    
   } catch (error) {
-    const responseTime = Date.now() - startTime;
-    console.error(`Server status check failed for ${config.host}:${config.port}:`, error.message);
-    
-    let errorMessage = error.message;
-    if (errorMessage.includes('Connection timed out') || errorMessage.includes('timeout')) {
-      errorMessage = `Connection timeout to ${config.host}:${config.port} - Server may be offline or unreachable`;
-    } else if (errorMessage.includes('Connection refused')) {
-      errorMessage = `Connection refused by ${config.host}:${config.port} - Service may be down`;
-    } else if (errorMessage.includes('No route to host')) {
-      errorMessage = `No route to host ${config.host} - Network connectivity issue`;
-    }
-    
+    console.error('Error checking server status:', error);
     return {
       success: false,
-      online: false,
-      error: errorMessage,
-      responseTime
+      error: error.message,
+      message: `Failed to connect to Firebird API at ${FIREBIRD_API_URL}: ${error.message}`
     };
-  } finally {
-    if (conn) {
-      try {
-        conn.close();
-      } catch (e) {
-        console.error('Error closing connection:', e);
-      }
-    }
   }
 }
 
-async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean; tables: any[]; error?: string }> {
-  let conn = null;
-  
+// Get tables info via HTTP API
+async function getTablesInfo(serverType: 'A' | 'B'): Promise<any> {
   try {
-    console.log('Starting getTablesInfo with config:', { host: config.host, port: config.port, database: config.database });
-    const client = new FirebirdClient(config);
-
-    // Add connection timeout (10s) to avoid hanging when host/port is blocked
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timeout after 10 seconds while fetching tables')), 10000)
-    );
-
-    console.log('Attempting to connect to Firebird...');
-    const connectPromise = client.connect();
-    conn = await Promise.race([connectPromise, timeoutPromise]);
-    console.log('Connected to Firebird successfully');
+    console.log(`Getting tables info for Server ${serverType} via Firebird API...`);
+    console.log('Using Firebird API URL:', FIREBIRD_API_URL);
+    const configs = getServerConfigs();
+    const config = serverType === 'A' ? configs.serverA : configs.serverB;
     
-    // Query real tables from Firebird system tables
-    console.log('Querying system tables...');
-    const tablesQuery = `
-      SELECT DISTINCT r.RDB$RELATION_NAME as TABLE_NAME
-      FROM RDB$RELATIONS r
-      WHERE (r.RDB$SYSTEM_FLAG = 0 OR r.RDB$SYSTEM_FLAG IS NULL)
-      AND r.RDB$RELATION_TYPE = 0
-      ORDER BY r.RDB$RELATION_NAME
-    `;
-
-    console.log('Executing tables query via client.executeQuery...');
-    const tablesResult = await client.executeQuery(conn, tablesQuery);
-    console.log('Tables query successful, found:', tablesResult?.length || 0, 'results');
+    console.log(`Server ${serverType} config:`, { host: config.host, port: config.port, database: config.database, user: config.user });
     
-    // For now, return mock data since the real Firebird protocol implementation is complex
-    // In production, you would implement the full Firebird wire protocol
-    const mockTables = [
-      {
-        name: 'CUSTOMERS',
-        columns: [
-          { name: 'ID', type: 'INTEGER', nullable: false },
-          { name: 'NAME', type: 'VARCHAR(100)', nullable: false },
-          { name: 'EMAIL', type: 'VARCHAR(255)', nullable: true }
-        ]
+    const response = await fetch(`${FIREBIRD_API_URL}/api/firebird/tables`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-      {
-        name: 'ORDERS', 
-        columns: [
-          { name: 'ID', type: 'INTEGER', nullable: false },
-          { name: 'CUSTOMER_ID', type: 'INTEGER', nullable: false },
-          { name: 'ORDER_DATE', type: 'TIMESTAMP', nullable: false }
-        ]
-      }
-    ];
+      body: JSON.stringify({
+        config: config
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('HTTP error response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log(`Tables response for Server ${serverType}:`, data);
     
-    console.log('Returning table info successfully');
     return {
-      success: true,
-      tables: mockTables
+      success: data.success,
+      tables: data.tables || [],
+      error: data.error
     };
-    
   } catch (error) {
-    console.error(`Error getting tables info: ${error.message}`);
+    console.error(`Error getting tables info for Server ${serverType}:`, error);
     return {
       success: false,
       tables: [],
-      error: error.message
+      error: `Failed to connect to Firebird API: ${error.message}`
     };
-  } finally {
-    if (conn) {
-      try {
-        conn.close();
-      } catch (e) {
-        console.error('Error closing connection:', e);
-      }
-    }
   }
 }
 
-async function checkAndNotifyServerStatus(serverAConfig: FirebirdConfig, serverBConfig: FirebirdConfig) {
+// Sync data via HTTP API
+async function syncData(): Promise<any> {
   try {
-    console.log("Checking server status for notifications...");
-    const serverAStatus = await checkServerStatus(serverAConfig);
-    const serverBStatus = await checkServerStatus(serverBConfig);
+    console.log('Starting data sync via Firebird API...');
+    console.log('Using Firebird API URL:', FIREBIRD_API_URL);
+    const configs = getServerConfigs();
     
-    // Check if any server is offline
-    if (!serverAStatus.online || !serverBStatus.online) {
-      console.log("Offline servers detected, sending notification...");
-      
-      // Call notification function
-      const notificationResponse = await fetch('https://hkmfsfxpywdoziriftok.supabase.co/functions/v1/notify-server-status', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
-        },
-        body: JSON.stringify({
-          serverA: {
-            server: 'Server A',
-            host: serverAConfig.host,
-            port: serverAConfig.port.toString(),
-            isOnline: serverAStatus.online,
-            responseTime: serverAStatus.responseTime,
-            error: serverAStatus.error
-          },
-          serverB: {
-            server: 'Server B', 
-            host: serverBConfig.host,
-            port: serverBConfig.port.toString(),
-            isOnline: serverBStatus.online,
-            responseTime: serverBStatus.responseTime,
-            error: serverBStatus.error
-          },
-          recipientEmail: 'tecnologia@tacobell.com.do'
-        })
-      });
-      
-      if (notificationResponse.ok) {
-        console.log("Notification sent successfully");
-      } else {
-        console.error("Failed to send notification:", await notificationResponse.text());
-      }
-    }
-    
-    return { serverAStatus, serverBStatus };
-  } catch (error) {
-    console.error("Error in checkAndNotifyServerStatus:", error);
-    return null;
-  }
-}
+    const response = await fetch(`${FIREBIRD_API_URL}/api/firebird/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sourceConfig: configs.serverA,
+        targetConfig: configs.serverB,
+        tableNames: null // Sync all tables
+      })
+    });
 
-async function syncDatabases(): Promise<{ success: boolean; message: string; details?: any }> {
-  let sourceConn: Deno.TcpConn | null = null;
-  let targetConn: Deno.TcpConn | null = null;
-
-  try {
-    console.log('Starting database synchronization...');
-
-    // Get configuration from environment variables
-    const sourceConfig: FirebirdConfig = {
-      host: Deno.env.get('FIREBIRD_A_HOST') || '',
-      port: parseInt(Deno.env.get('FIREBIRD_A_PORT') || '3050'),
-      database: 'database.fdb', // You may need to adjust this
-      user: Deno.env.get('FIREBIRD_A_USER') || '',
-      password: Deno.env.get('FIREBIRD_A_PASSWORD') || '',
-    };
-
-    const targetConfig: FirebirdConfig = {
-      host: Deno.env.get('FIREBIRD_B_HOST') || '',
-      port: parseInt(Deno.env.get('FIREBIRD_B_PORT') || '3050'),
-      database: 'database.fdb', // You may need to adjust this
-      user: Deno.env.get('FIREBIRD_B_USER') || '',
-      password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
-    };
-
-    console.log(`Source: ${sourceConfig.host}:${sourceConfig.port}`);
-    console.log(`Target: ${targetConfig.host}:${targetConfig.port}`);
-
-    const sourceClient = new FirebirdClient(sourceConfig);
-    const targetClient = new FirebirdClient(targetConfig);
-
-    // Connect to both databases
-    sourceConn = await sourceClient.connect();
-    targetConn = await targetClient.connect();
-
-    // Use a predefined list of tables to sync for now
-    // In production, you would get this from the actual database schema
-    const tablesToSync = [
-      'CUSTOMERS',
-      'ORDERS',
-      'PRODUCTS',
-      'INVOICES'
-    ];
-    console.log(`Syncing ${tablesToSync.length} predefined tables:`, tablesToSync);
-
-    const syncResults = [];
-
-    for (const tableName of tablesToSync) {
-      try {
-        console.log(`Syncing table: ${tableName}`);
-
-        // Get data from source
-        const sourceData = await sourceClient.executeQuery(
-          sourceConn,
-          `SELECT * FROM ${tableName}`
-        );
-
-        // Clear target table (for complete sync)
-        await targetClient.executeQuery(
-          targetConn,
-          `DELETE FROM ${tableName}`
-        );
-
-        // Insert data into target
-        if (sourceData.length > 0) {
-          // This is where you'd implement the actual data insertion
-          // For now, we'll just log the operation
-          console.log(`Would insert ${sourceData.length} records into ${tableName}`);
-        }
-
-        syncResults.push({
-          table: tableName,
-          records: sourceData.length,
-          status: 'success'
-        });
-
-      } catch (tableError) {
-        console.error(`Error syncing table ${tableName}:`, tableError);
-        syncResults.push({
-          table: tableName,
-          status: 'error',
-          error: tableError.message
-        });
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('HTTP error response:', errorText);
+      throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
     }
 
+    const data = await response.json();
+    console.log('Sync response:', data);
+    
     return {
-      success: true,
-      message: 'Database synchronization completed',
-      details: {
-        timestamp: new Date().toISOString(),
-        tablesProcessed: syncResults.length,
-        results: syncResults
-      }
+      success: data.success,
+      message: data.message,
+      results: data.results || []
     };
-
   } catch (error) {
-    console.error('Synchronization failed:', error);
+    console.error('Error during sync:', error);
     return {
       success: false,
-      message: `Synchronization failed: ${error.message}`
+      message: `Failed to sync via Firebird API: ${error.message}`,
+      results: []
     };
-  } finally {
-    // Clean up connections
-    if (sourceConn) {
-      try {
-        sourceConn.close();
-      } catch (e) {
-        console.error('Error closing source connection:', e);
-      }
-    }
-    if (targetConn) {
-      try {
-        targetConn.close();
-      } catch (e) {
-        console.error('Error closing target connection:', e);
-      }
-    }
   }
 }
 
@@ -384,130 +189,100 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const { action } = body;
-    
+    const { action } = await req.json();
     console.log(`Firebird function called with action: ${action}`);
-    console.log(`Request body:`, body);
-
-    // Get configuration for both servers
-    const sourceConfig: FirebirdConfig = {
-      host: Deno.env.get('FIREBIRD_A_HOST') || '',
-      port: parseInt(Deno.env.get('FIREBIRD_A_PORT') || '3050'),
-      database: '/dbs/fdb/bell.fdb',
-      user: Deno.env.get('FIREBIRD_A_USER') || '',
-      password: Deno.env.get('FIREBIRD_A_PASSWORD') || '',
-    };
-
-    const targetConfig: FirebirdConfig = {
-      host: Deno.env.get('FIREBIRD_B_HOST') || '',
-      port: parseInt(Deno.env.get('FIREBIRD_B_PORT') || '3050'),
-      database: '/dbs/fdb/bell.fdb',
-      user: Deno.env.get('FIREBIRD_B_USER') || '',
-      password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
-    };
-
-    console.log(`Server A config: ${sourceConfig.host}:${sourceConfig.port} DB: ${sourceConfig.database} (user: ${sourceConfig.user})`);
-    console.log(`Server B config: ${targetConfig.host}:${targetConfig.port} DB: ${targetConfig.database} (user: ${targetConfig.user})`);
-
-    // Validate configurations
-    if (!sourceConfig.host || !sourceConfig.user || !sourceConfig.password) {
-      throw new Error(`Server A configuration incomplete: host=${sourceConfig.host}, user=${sourceConfig.user}, password=${sourceConfig.password ? 'set' : 'missing'}`);
-    }
-
-    if (!targetConfig.host || !targetConfig.user || !targetConfig.password) {
-      throw new Error(`Server B configuration incomplete: host=${targetConfig.host}, user=${targetConfig.user}, password=${targetConfig.password ? 'set' : 'missing'}`);
-    }
-
-    let result: any;
 
     switch (action) {
-      case 'sync':
-        result = await syncDatabases();
-        break;
-        
       case 'status':
-        const sourceStatusResult = await checkServerStatus(sourceConfig);
-        const targetStatusResult = await checkServerStatus(targetConfig);
+        console.log('Checking server status for notifications...');
+        const statusResult = await checkServerStatus();
         
-        // Check and send notifications if needed
-        await checkAndNotifyServerStatus(sourceConfig, targetConfig);
-        
-        result = {
-          success: true,
-          message: 'Server status checked',
-          data: {
-            serverA: {
-              host: `${sourceConfig.host}:${sourceConfig.port}`,
-              online: sourceStatusResult.online,
-              responseTime: sourceStatusResult.responseTime,
-              error: sourceStatusResult.error
-            },
-            serverB: {
-              host: `${targetConfig.host}:${targetConfig.port}`,
-              online: targetStatusResult.online,
-              responseTime: targetStatusResult.responseTime,
-              error: targetStatusResult.error
+        // Check if we need to send notifications for offline servers
+        if (statusResult.success && statusResult.data) {
+          const { serverA, serverB } = statusResult.data;
+          const offlineServers = [];
+          if (!serverA.online) offlineServers.push('Server A');
+          if (!serverB.online) offlineServers.push('Server B');
+          
+          if (offlineServers.length > 0) {
+            console.log('Offline servers detected, sending notification...');
+            try {
+              // Call the notification function
+              const notifyResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/notify-server-status`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  serverA: statusResult.data.serverA,
+                  serverB: statusResult.data.serverB
+                })
+              });
+              
+              if (notifyResponse.ok) {
+                console.log('Notification sent successfully');
+              } else {
+                console.error('Failed to send notification:', await notifyResponse.text());
+              }
+            } catch (notifyError) {
+              console.error('Error sending notification:', notifyError);
             }
           }
-        };
-        break;
+        }
         
+        return new Response(JSON.stringify(statusResult), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
       case 'tables':
-        const sourceTablesResult = await getTablesInfo(sourceConfig);
-        const targetTablesResult = await getTablesInfo(targetConfig);
+        // Get tables from both servers
+        const serverAResult = await getTablesInfo('A');
+        const serverBResult = await getTablesInfo('B');
         
-        result = {
-          success: sourceTablesResult.success && targetTablesResult.success,
-          message: 'Table information retrieved',
+        return new Response(JSON.stringify({
+          success: true,
           data: {
             serverA: {
-              host: `${sourceConfig.host}:${sourceConfig.port}`,
-              success: sourceTablesResult.success,
-              tables: sourceTablesResult.tables,
-              error: sourceTablesResult.error
+              host: getServerConfigs().serverA.host,
+              success: serverAResult.success,
+              tables: serverAResult.tables,
+              error: serverAResult.error
             },
             serverB: {
-              host: `${targetConfig.host}:${targetConfig.port}`,
-              success: targetTablesResult.success,
-              tables: targetTablesResult.tables,
-              error: targetTablesResult.error
+              host: getServerConfigs().serverB.host,
+              success: serverBResult.success,
+              tables: serverBResult.tables,
+              error: serverBResult.error
             }
           }
-        };
-        break;
-        
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
+      case 'sync':
+        const syncResult = await syncData();
+        return new Response(JSON.stringify(syncResult), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
       default:
-        result = {
-          success: false,
-          message: `Invalid action: ${action}. Supported actions: sync, status, tables`
-        };
-        break;
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'Invalid action. Use: status, tables, or sync' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
-
-    return new Response(JSON.stringify(result), {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-      },
-      status: result.success ? 200 : 400,
-    });
-
   } catch (error) {
-    console.error('Edge function error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        message: 'Internal server error',
-        error: error.message,
-      }),
-      {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-        status: 500,
-      }
-    );
+    console.error('Error in sync-firebird function:', error);
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: error.message 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
