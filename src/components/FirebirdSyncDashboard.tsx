@@ -152,26 +152,29 @@ export function FirebirdSyncDashboard() {
   };
 
   const fetchSyncLogs = async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('sync_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10);
+    // Temporarily disabled - sync_logs table doesn't exist yet
+    // setIsLoading(true);
+    // try {
+    //   const { data, error } = await supabase
+    //     .from('sync_logs')
+    //     .select('*')
+    //     .order('created_at', { ascending: false })
+    //     .limit(10);
 
-      if (error) throw error;
-      setSyncLogs(data || []);
-    } catch (error) {
-      console.error('Error fetching sync logs:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch sync logs",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    //   if (error) throw error;
+    //   setSyncLogs(data || []);
+    // } catch (error) {
+    //   console.error('Error fetching sync logs:', error);
+    //   toast({
+    //     title: "Error",
+    //     description: "Failed to fetch sync logs",
+    //     variant: "destructive",
+    //   });
+    // } finally {
+    //   setIsLoading(false);
+    // }
+    setSyncLogs([]);
+    setIsLoading(false);
   };
 
   const triggerManualSync = async () => {
@@ -188,10 +191,10 @@ export function FirebirdSyncDashboard() {
         description: "Manual synchronization has been started",
       });
 
-      // Refresh logs after a delay
-      setTimeout(() => {
-        fetchSyncLogs();
-      }, 2000);
+      // Refresh logs after a delay (temporarily disabled)
+      // setTimeout(() => {
+      //   fetchSyncLogs();
+      // }, 2000);
 
     } catch (error) {
       console.error('Error triggering sync:', error);
@@ -206,7 +209,7 @@ export function FirebirdSyncDashboard() {
   };
 
   useEffect(() => {
-    fetchSyncLogs();
+    // fetchSyncLogs(); // Temporarily disabled
     fetchTablesInfo();
     checkServerStatus();
   }, []);
