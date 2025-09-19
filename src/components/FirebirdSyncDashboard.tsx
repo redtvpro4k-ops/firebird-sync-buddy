@@ -5,11 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { RefreshCw, Database, Clock, Play, TableProperties, Eye, Settings, Wifi, WifiOff, Server, LogOut } from 'lucide-react';
+import { RefreshCw, Database, Clock, Play, Settings, Wifi, WifiOff, Server, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SyncLog {
@@ -19,24 +18,6 @@ interface SyncLog {
   message: string;
   details: any;
   created_at: string;
-}
-
-interface TableColumn {
-  name: string;
-  type: string;
-  nullable: boolean;
-}
-
-interface DatabaseTable {
-  name: string;
-  columns: TableColumn[];
-}
-
-interface ServerInfo {
-  host: string;
-  success: boolean;
-  tables: DatabaseTable[];
-  error?: string;
 }
 
 interface ServerStatus {
@@ -57,8 +38,6 @@ export function FirebirdSyncDashboard() {
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [tablesData, setTablesData] = useState<{ serverA: ServerInfo; serverB: ServerInfo } | null>(null);
-  const [loadingTables, setLoadingTables] = useState(false);
   const [serverStatus, setServerStatus] = useState<{ serverA: ServerStatus; serverB: ServerStatus } | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
@@ -230,47 +209,6 @@ export function FirebirdSyncDashboard() {
     }
   };
 
-  const fetchTablesInfo = async () => {
-    setLoadingTables(true);
-    try {
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout: La función tardó más de 30 segundos en responder')), 30000)
-      );
-
-      const functionCall = supabase.functions.invoke('sync-firebird', {
-        body: { action: 'tables' }
-      });
-
-      const { data, error } = (await Promise.race([functionCall, timeoutPromise])) as any;
-
-      if (error) throw error;
-
-      if (data?.success) {
-        setTablesData(data.data);
-      } else {
-        const aErr = data?.data?.serverA?.error;
-        const bErr = data?.data?.serverB?.error;
-        const details = [aErr && `A: ${aErr}`, bErr && `B: ${bErr}`].filter(Boolean).join(' | ');
-        throw new Error(data?.message ? `${data.message}${details ? ` - ${details}` : ''}` : (details || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Error fetching tables info:', error);
-      let msg = 'No se pudieron obtener las tablas.';
-      const text = (error as any)?.message || String(error);
-      if (text.includes('Failed to send a request')) msg = 'No se pudo conectar con el servicio (Edge Function).';
-      else if (text.toLowerCase().includes('timeout')) msg = 'La verificación de tablas excedió el tiempo de espera.';
-      else msg = text;
-
-      toast({
-        title: 'Error al Cargar Tablas',
-        description: msg,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingTables(false);
-    }
-  };
-
   const fetchSyncLogs = async () => {
     // Temporarily disabled - sync_logs table doesn't exist yet
     // setIsLoading(true);
@@ -360,7 +298,6 @@ export function FirebirdSyncDashboard() {
   useEffect(() => {
     // fetchSyncLogs(); // Temporarily disabled
     loadConfigs();
-    fetchTablesInfo();
     checkServerStatus();
   }, []);
 
@@ -669,180 +606,6 @@ export function FirebirdSyncDashboard() {
               <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No server status information</p>
               <p className="text-sm">Click "Check Status" to verify server connections</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Database Tables - Server A */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TableProperties className="h-5 w-5" />
-            Database Tables - Server A
-            {serverStatus?.serverA && (
-              serverStatus.serverA.online ? (
-                <Badge variant="secondary" className="bg-green-100 text-green-800 ml-2">Online</Badge>
-              ) : (
-                <Badge variant="destructive" className="ml-2">Offline</Badge>
-              )
-            )}
-          </CardTitle>
-          <CardDescription>
-            View table structures from Server A ({serverConfigs.serverA.host}:{serverConfigs.serverA.port})
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 mb-4">
-            <Button variant="outline" onClick={fetchTablesInfo} disabled={loadingTables}>
-              {loadingTables ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Eye className="h-4 w-4 mr-2" />
-              )}
-              {loadingTables ? 'Loading...' : 'Load Server A Tables'}
-            </Button>
-          </div>
-
-          {tablesData?.serverA ? (
-            tablesData.serverA.success ? (
-              <div className="space-y-4">
-                {tablesData.serverA.tables.map((table) => (
-                  <Card key={table.name}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{table.name}</CardTitle>
-                      <CardDescription>
-                        {table.columns.length} columns
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Column Name</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Nullable</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {table.columns.map((column) => (
-                            <TableRow key={column.name}>
-                              <TableCell className="font-medium">{column.name}</TableCell>
-                              <TableCell>{column.type}</TableCell>
-                              <TableCell>
-                                <Badge variant={column.nullable ? "secondary" : "outline"}>
-                                  {column.nullable ? "Yes" : "No"}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Failed to load Server A tables</p>
-                {tablesData.serverA.error && (
-                  <p className="text-sm text-destructive">{tablesData.serverA.error}</p>
-                )}
-              </div>
-            )
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <TableProperties className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No table information loaded for Server A</p>
-              <p className="text-sm">Click "Load Server A Tables" to load database schema</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Database Tables - Server B */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TableProperties className="h-5 w-5" />
-            Database Tables - Server B
-            {serverStatus?.serverB && (
-              serverStatus.serverB.online ? (
-                <Badge variant="secondary" className="bg-green-100 text-green-800 ml-2">Online</Badge>
-              ) : (
-                <Badge variant="destructive" className="ml-2">Offline</Badge>
-              )
-            )}
-          </CardTitle>
-          <CardDescription>
-            View table structures from Server B ({serverConfigs.serverB.host}:{serverConfigs.serverB.port})
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 mb-4">
-            <Button variant="outline" onClick={fetchTablesInfo} disabled={loadingTables}>
-              {loadingTables ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Eye className="h-4 w-4 mr-2" />
-              )}
-              {loadingTables ? 'Loading...' : 'Load Server B Tables'}
-            </Button>
-          </div>
-
-          {tablesData?.serverB ? (
-            tablesData.serverB.success ? (
-              <div className="space-y-4">
-                {tablesData.serverB.tables.map((table) => (
-                  <Card key={table.name}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{table.name}</CardTitle>
-                      <CardDescription>
-                        {table.columns.length} columns
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Column Name</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Nullable</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {table.columns.map((column) => (
-                            <TableRow key={column.name}>
-                              <TableCell className="font-medium">{column.name}</TableCell>
-                              <TableCell>{column.type}</TableCell>
-                              <TableCell>
-                                <Badge variant={column.nullable ? "secondary" : "outline"}>
-                                  {column.nullable ? "Yes" : "No"}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Failed to load Server B tables</p>
-                {tablesData.serverB.error && (
-                  <p className="text-sm text-destructive">{tablesData.serverB.error}</p>
-                )}
-              </div>
-            )
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <TableProperties className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No table information loaded for Server B</p>
-              <p className="text-sm">Click "Load Server B Tables" to load database schema</p>
             </div>
           )}
         </CardContent>
