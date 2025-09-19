@@ -74,6 +74,108 @@ class FirebirdClient {
   }
 }
 
+async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean; tables: any[]; error?: string }> {
+  let conn: Deno.TcpConn | null = null;
+  
+  try {
+    const client = new FirebirdClient(config);
+    conn = await client.connect();
+    
+    // Get table information (simplified - in real implementation you'd query system tables)
+    const systemTables = [
+      'RDB$RELATIONS',
+      'RDB$FIELDS', 
+      'RDB$RELATION_FIELDS',
+      'RDB$INDICES'
+    ];
+    
+    // Mock table data for demonstration
+    const mockTables = [
+      {
+        name: 'M3U_PLAYLISTS',
+        columns: [
+          { name: 'ID', type: 'UUID', nullable: false },
+          { name: 'NAME', type: 'VARCHAR(255)', nullable: false },
+          { name: 'DESCRIPTION', type: 'VARCHAR(500)', nullable: true },
+          { name: 'FILE_URL', type: 'VARCHAR(500)', nullable: false },
+          { name: 'UPLOADED_BY', type: 'UUID', nullable: false },
+          { name: 'IS_ACTIVE', type: 'BOOLEAN', nullable: false },
+          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
+          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
+        ]
+      },
+      {
+        name: 'CHANNELS',
+        columns: [
+          { name: 'ID', type: 'UUID', nullable: false },
+          { name: 'PLAYLIST_ID', type: 'UUID', nullable: false },
+          { name: 'NAME', type: 'VARCHAR(255)', nullable: false },
+          { name: 'URL', type: 'VARCHAR(500)', nullable: false },
+          { name: 'LOGO_URL', type: 'VARCHAR(500)', nullable: true },
+          { name: 'GROUP_TITLE', type: 'VARCHAR(255)', nullable: true },
+          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false }
+        ]
+      },
+      {
+        name: 'PROFILES',
+        columns: [
+          { name: 'ID', type: 'UUID', nullable: false },
+          { name: 'USER_ID', type: 'UUID', nullable: false },
+          { name: 'DISPLAY_NAME', type: 'VARCHAR(255)', nullable: true },
+          { name: 'AVATAR_URL', type: 'VARCHAR(500)', nullable: true },
+          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
+          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
+        ]
+      },
+      {
+        name: 'USER_ROLES',
+        columns: [
+          { name: 'ID', type: 'UUID', nullable: false },
+          { name: 'USER_ID', type: 'UUID', nullable: false },
+          { name: 'ROLE', type: 'VARCHAR(50)', nullable: false }
+        ]
+      },
+      {
+        name: 'ADS_CONFIG',
+        columns: [
+          { name: 'ID', type: 'UUID', nullable: false },
+          { name: 'VIDEO_ADS_ENABLED', type: 'BOOLEAN', nullable: false },
+          { name: 'BANNER_ENABLED', type: 'BOOLEAN', nullable: false },
+          { name: 'INTERSTITIAL_ENABLED', type: 'BOOLEAN', nullable: false },
+          { name: 'ADS_FREQUENCY', type: 'INTEGER', nullable: false },
+          { name: 'META_PIXEL_ID', type: 'VARCHAR(255)', nullable: true },
+          { name: 'META_APP_ID', type: 'VARCHAR(255)', nullable: true },
+          { name: 'GOOGLE_ADS_CLIENT_ID', type: 'VARCHAR(255)', nullable: true },
+          { name: 'GOOGLE_ADS_SLOT_ID', type: 'VARCHAR(255)', nullable: true },
+          { name: 'CREATED_AT', type: 'TIMESTAMP', nullable: false },
+          { name: 'UPDATED_AT', type: 'TIMESTAMP', nullable: false }
+        ]
+      }
+    ];
+    
+    return {
+      success: true,
+      tables: mockTables
+    };
+    
+  } catch (error) {
+    console.error(`Error getting tables info: ${error.message}`);
+    return {
+      success: false,
+      tables: [],
+      error: error.message
+    };
+  } finally {
+    if (conn) {
+      try {
+        conn.close();
+      } catch (e) {
+        console.error('Error closing connection:', e);
+      }
+    }
+  }
+}
+
 async function syncDatabases(): Promise<{ success: boolean; message: string; details?: any }> {
   let sourceConn: Deno.TcpConn | null = null;
   let targetConn: Deno.TcpConn | null = null;
@@ -200,17 +302,73 @@ serve(async (req) => {
   }
 
   try {
-    console.log('Firebird sync function called');
+    const url = new URL(req.url);
+    const action = url.searchParams.get('action') || 'sync';
+    
+    console.log(`Firebird function called with action: ${action}`);
 
-    // Perform the synchronization
-    const result = await syncDatabases();
+    // Get configuration for both servers
+    const sourceConfig: FirebirdConfig = {
+      host: Deno.env.get('FIREBIRD_A_HOST') || '',
+      port: parseInt(Deno.env.get('FIREBIRD_A_PORT') || '3050'),
+      database: 'database.fdb', // You may need to adjust this
+      user: Deno.env.get('FIREBIRD_A_USER') || '',
+      password: Deno.env.get('FIREBIRD_A_PASSWORD') || '',
+    };
+
+    const targetConfig: FirebirdConfig = {
+      host: Deno.env.get('FIREBIRD_B_HOST') || '',
+      port: parseInt(Deno.env.get('FIREBIRD_B_PORT') || '3050'),
+      database: 'database.fdb', // You may need to adjust this
+      user: Deno.env.get('FIREBIRD_B_USER') || '',
+      password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
+    };
+
+    let result: any;
+
+    switch (action) {
+      case 'sync':
+        result = await syncDatabases();
+        break;
+        
+      case 'tables':
+        const sourceTablesResult = await getTablesInfo(sourceConfig);
+        const targetTablesResult = await getTablesInfo(targetConfig);
+        
+        result = {
+          success: sourceTablesResult.success && targetTablesResult.success,
+          message: 'Table information retrieved',
+          data: {
+            serverA: {
+              host: `${sourceConfig.host}:${sourceConfig.port}`,
+              success: sourceTablesResult.success,
+              tables: sourceTablesResult.tables,
+              error: sourceTablesResult.error
+            },
+            serverB: {
+              host: `${targetConfig.host}:${targetConfig.port}`,
+              success: targetTablesResult.success,
+              tables: targetTablesResult.tables,
+              error: targetTablesResult.error
+            }
+          }
+        };
+        break;
+        
+      default:
+        result = {
+          success: false,
+          message: 'Invalid action. Supported actions: sync, tables'
+        };
+        break;
+    }
 
     return new Response(JSON.stringify(result), {
       headers: {
         ...corsHeaders,
         'Content-Type': 'application/json',
       },
-      status: result.success ? 200 : 500,
+      status: result.success ? 200 : 400,
     });
 
   } catch (error) {

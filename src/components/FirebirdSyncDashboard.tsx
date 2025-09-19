@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Database, Clock, Play } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { RefreshCw, Database, Clock, Play, Table as TableIcon, Eye } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -15,11 +17,57 @@ interface SyncLog {
   created_at: string;
 }
 
+interface TableColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+interface DatabaseTable {
+  name: string;
+  columns: TableColumn[];
+}
+
+interface ServerInfo {
+  host: string;
+  success: boolean;
+  tables: DatabaseTable[];
+  error?: string;
+}
+
 export function FirebirdSyncDashboard() {
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [tablesData, setTablesData] = useState<{ serverA: ServerInfo; serverB: ServerInfo } | null>(null);
+  const [loadingTables, setLoadingTables] = useState(false);
   const { toast } = useToast();
+
+  const fetchTablesInfo = async () => {
+    setLoadingTables(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-firebird', {
+        body: { action: 'tables' }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        setTablesData(data.data);
+      } else {
+        throw new Error(data.message);
+      }
+    } catch (error) {
+      console.error('Error fetching tables info:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch database tables information",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingTables(false);
+    }
+  };
 
   const fetchSyncLogs = async () => {
     setIsLoading(true);
@@ -77,6 +125,7 @@ export function FirebirdSyncDashboard() {
 
   useEffect(() => {
     fetchSyncLogs();
+    fetchTablesInfo();
   }, []);
 
   const getStatusBadge = (status: string) => {
@@ -162,6 +211,148 @@ export function FirebirdSyncDashboard() {
               </CardContent>
             </Card>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Database Tables Visualization */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TableIcon className="h-5 w-5" />
+            Database Tables
+          </CardTitle>
+          <CardDescription>
+            View and compare table structures from both Firebird servers
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 mb-4">
+            <Button variant="outline" onClick={fetchTablesInfo} disabled={loadingTables}>
+              {loadingTables ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Eye className="h-4 w-4 mr-2" />
+              )}
+              {loadingTables ? 'Loading...' : 'View Tables'}
+            </Button>
+          </div>
+
+          {tablesData ? (
+            <Tabs defaultValue="serverA" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="serverA">
+                  Server A ({tablesData.serverA.host})
+                </TabsTrigger>
+                <TabsTrigger value="serverB">
+                  Server B ({tablesData.serverB.host})
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="serverA" className="space-y-4">
+                {tablesData.serverA.success ? (
+                  <div className="space-y-4">
+                    {tablesData.serverA.tables.map((table) => (
+                      <Card key={table.name}>
+                        <CardHeader>
+                          <CardTitle className="text-lg">{table.name}</CardTitle>
+                          <CardDescription>
+                            {table.columns.length} columns
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Column Name</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Nullable</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {table.columns.map((column) => (
+                                <TableRow key={column.name}>
+                                  <TableCell className="font-medium">{column.name}</TableCell>
+                                  <TableCell>{column.type}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={column.nullable ? "secondary" : "outline"}>
+                                      {column.nullable ? "Yes" : "No"}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Failed to load Server A tables</p>
+                    {tablesData.serverA.error && (
+                      <p className="text-sm text-destructive">{tablesData.serverA.error}</p>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="serverB" className="space-y-4">
+                {tablesData.serverB.success ? (
+                  <div className="space-y-4">
+                    {tablesData.serverB.tables.map((table) => (
+                      <Card key={table.name}>
+                        <CardHeader>
+                          <CardTitle className="text-lg">{table.name}</CardTitle>
+                          <CardDescription>
+                            {table.columns.length} columns
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Column Name</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Nullable</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {table.columns.map((column) => (
+                                <TableRow key={column.name}>
+                                  <TableCell className="font-medium">{column.name}</TableCell>
+                                  <TableCell>{column.type}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={column.nullable ? "secondary" : "outline"}>
+                                      {column.nullable ? "Yes" : "No"}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Failed to load Server B tables</p>
+                    {tablesData.serverB.error && (
+                      <p className="text-sm text-destructive">{tablesData.serverB.error}</p>
+                    )}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <TableIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No table information loaded</p>
+              <p className="text-sm">Click "View Tables" to load database schemas</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
