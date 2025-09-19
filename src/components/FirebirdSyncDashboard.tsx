@@ -363,7 +363,7 @@ export function FirebirdSyncDashboard() {
                   <Database className="h-4 w-4 text-blue-500" />
                   <span className="text-sm font-medium">Server A</span>
                 </div>
-                <p className="text-xs text-muted-foreground">179.51.69.249:3050</p>
+                <p className="text-xs text-muted-foreground">{serverConfigs.serverA.host}:{serverConfigs.serverA.port}</p>
               </CardContent>
             </Card>
             
@@ -380,7 +380,7 @@ export function FirebirdSyncDashboard() {
                   <Database className="h-4 w-4 text-green-500" />
                   <span className="text-sm font-medium">Server B</span>
                 </div>
-                <p className="text-xs text-muted-foreground">63.141.253.138:3050</p>
+                <p className="text-xs text-muted-foreground">{serverConfigs.serverB.host}:{serverConfigs.serverB.port}</p>
               </CardContent>
             </Card>
           </div>
