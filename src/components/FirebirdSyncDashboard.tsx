@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, Database, Clock, Play, Table as TableIcon, Eye } from 'lucide-react';
+import { RefreshCw, Database, Clock, Play, TableProperties, Eye } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -218,7 +218,7 @@ export function FirebirdSyncDashboard() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TableIcon className="h-5 w-5" />
+            <TableProperties className="h-5 w-5" />
             Database Tables
           </CardTitle>
           <CardDescription>
@@ -348,7 +348,7 @@ export function FirebirdSyncDashboard() {
             </Tabs>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              <TableIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <TableProperties className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No table information loaded</p>
               <p className="text-sm">Click "View Tables" to load database schemas</p>
             </div>
