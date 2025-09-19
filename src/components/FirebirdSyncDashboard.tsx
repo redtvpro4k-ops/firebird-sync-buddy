@@ -97,22 +97,33 @@ export function FirebirdSyncDashboard() {
   const checkServerStatus = async () => {
     setCheckingStatus(true);
     try {
+      console.log('Checking server status...');
       const { data, error } = await supabase.functions.invoke('sync-firebird', {
         body: { action: 'status' }
       });
 
-      if (error) throw error;
+      console.log('Server status response:', { data, error });
+
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error(`Function error: ${error.message || JSON.stringify(error)}`);
+      }
+
+      if (!data) {
+        throw new Error('No data received from server status check');
+      }
 
       if (data.success) {
+        console.log('Server status data:', data.data);
         setServerStatus(data.data);
       } else {
-        throw new Error(data.message);
+        throw new Error(data.message || 'Server status check failed without specific error');
       }
     } catch (error) {
       console.error('Error checking server status:', error);
       toast({
-        title: "Error",
-        description: "Failed to check server status",
+        title: "Error de Conexión",
+        description: `Error al verificar servidores: ${error.message || error}`,
         variant: "destructive",
       });
     } finally {

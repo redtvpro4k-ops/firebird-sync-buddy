@@ -390,9 +390,11 @@ serve(async (req) => {
   }
 
   try {
-    const { action } = await req.json().catch(() => ({ action: 'sync' }));
+    const body = await req.json().catch(() => ({}));
+    const { action } = body;
     
     console.log(`Firebird function called with action: ${action}`);
+    console.log(`Request body:`, body);
 
     // Get configuration for both servers
     const sourceConfig: FirebirdConfig = {
@@ -410,6 +412,18 @@ serve(async (req) => {
       user: Deno.env.get('FIREBIRD_B_USER') || '',
       password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
     };
+
+    console.log(`Server A config: ${sourceConfig.host}:${sourceConfig.port} (user: ${sourceConfig.user})`);
+    console.log(`Server B config: ${targetConfig.host}:${targetConfig.port} (user: ${targetConfig.user})`);
+
+    // Validate configurations
+    if (!sourceConfig.host || !sourceConfig.user || !sourceConfig.password) {
+      throw new Error(`Server A configuration incomplete: host=${sourceConfig.host}, user=${sourceConfig.user}, password=${sourceConfig.password ? 'set' : 'missing'}`);
+    }
+
+    if (!targetConfig.host || !targetConfig.user || !targetConfig.password) {
+      throw new Error(`Server B configuration incomplete: host=${targetConfig.host}, user=${targetConfig.user}, password=${targetConfig.password ? 'set' : 'missing'}`);
+    }
 
     let result: any;
 
@@ -472,7 +486,7 @@ serve(async (req) => {
       default:
         result = {
           success: false,
-          message: 'Invalid action. Supported actions: sync, tables'
+          message: `Invalid action: ${action}. Supported actions: sync, status, tables`
         };
         break;
     }
