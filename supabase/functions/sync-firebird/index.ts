@@ -134,7 +134,15 @@ async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean
   
   try {
     const client = new FirebirdClient(config);
-    conn = await client.connect();
+
+    // Add connection timeout (10s) to avoid hanging when host/port is blocked
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds while fetching tables')), 10000)
+    );
+
+    const connectPromise = client.connect();
+    conn = await Promise.race([connectPromise, timeoutPromise]);
+    
     
     // Get table information (simplified - in real implementation you'd query system tables)
     const systemTables = [

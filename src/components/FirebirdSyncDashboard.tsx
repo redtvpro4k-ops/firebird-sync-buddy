@@ -233,23 +233,38 @@ export function FirebirdSyncDashboard() {
   const fetchTablesInfo = async () => {
     setLoadingTables(true);
     try {
-      const { data, error } = await supabase.functions.invoke('sync-firebird', {
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout: La función tardó más de 30 segundos en responder')), 30000)
+      );
+
+      const functionCall = supabase.functions.invoke('sync-firebird', {
         body: { action: 'tables' }
       });
 
+      const { data, error } = (await Promise.race([functionCall, timeoutPromise])) as any;
+
       if (error) throw error;
 
-      if (data.success) {
+      if (data?.success) {
         setTablesData(data.data);
       } else {
-        throw new Error(data.message);
+        const aErr = data?.data?.serverA?.error;
+        const bErr = data?.data?.serverB?.error;
+        const details = [aErr && `A: ${aErr}`, bErr && `B: ${bErr}`].filter(Boolean).join(' | ');
+        throw new Error(data?.message ? `${data.message}${details ? ` - ${details}` : ''}` : (details || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error fetching tables info:', error);
+      let msg = 'No se pudieron obtener las tablas.';
+      const text = (error as any)?.message || String(error);
+      if (text.includes('Failed to send a request')) msg = 'No se pudo conectar con el servicio (Edge Function).';
+      else if (text.toLowerCase().includes('timeout')) msg = 'La verificación de tablas excedió el tiempo de espera.';
+      else msg = text;
+
       toast({
-        title: "Error",
-        description: "Failed to fetch database tables information",
-        variant: "destructive",
+        title: 'Error al Cargar Tablas',
+        description: msg,
+        variant: 'destructive',
       });
     } finally {
       setLoadingTables(false);
