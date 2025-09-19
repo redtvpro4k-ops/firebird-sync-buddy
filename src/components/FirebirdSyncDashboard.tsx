@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { RefreshCw, Database, Clock, Play, TableProperties, Eye, Settings, Wifi, WifiOff, Server } from 'lucide-react';
+import { RefreshCw, Database, Clock, Play, TableProperties, Eye, Settings, Wifi, WifiOff, Server, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface SyncLog {
@@ -70,6 +71,28 @@ export function FirebirdSyncDashboard() {
     serverB: { host: '63.141.253.138', port: '3050', user: 'sysdba', password: '' }
   });
   const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
+      toast({
+        title: "Sesión cerrada",
+        description: "Has cerrado sesión exitosamente.",
+      });
+      
+      navigate('/auth');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      toast({
+        title: "Error",
+        description: "Error al cerrar sesión",
+        variant: "destructive",
+      });
+    }
+  };
 
   const checkServerStatus = async () => {
     setCheckingStatus(true);
@@ -292,6 +315,14 @@ export function FirebirdSyncDashboard() {
             Monitor and control synchronization between Server A and Server B
           </p>
         </div>
+        <Button 
+          variant="outline" 
+          onClick={handleLogout}
+          className="flex items-center gap-2"
+        >
+          <LogOut className="h-4 w-4" />
+          Cerrar Sesión
+        </Button>
       </div>
 
       {/* Sync Controls */}
