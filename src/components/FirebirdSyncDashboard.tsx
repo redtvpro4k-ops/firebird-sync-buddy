@@ -4,7 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, Database, Clock, Play, TableProperties, Eye } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { RefreshCw, Database, Clock, Play, TableProperties, Eye, Settings, Wifi, WifiOff, Server } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -35,13 +38,92 @@ interface ServerInfo {
   error?: string;
 }
 
+interface ServerStatus {
+  host: string;
+  online: boolean;
+  responseTime?: number;
+  error?: string;
+}
+
+interface ServerConfig {
+  host: string;
+  port: string;
+  user: string;
+  password: string;
+}
+
 export function FirebirdSyncDashboard() {
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [tablesData, setTablesData] = useState<{ serverA: ServerInfo; serverB: ServerInfo } | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
+  const [serverStatus, setServerStatus] = useState<{ serverA: ServerStatus; serverB: ServerStatus } | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [selectedServer, setSelectedServer] = useState<'A' | 'B'>('A');
+  const [serverConfigs, setServerConfigs] = useState<{
+    serverA: ServerConfig;
+    serverB: ServerConfig;
+  }>({
+    serverA: { host: '179.51.69.249', port: '3050', user: 'sysdba', password: '' },
+    serverB: { host: '63.141.253.138', port: '3050', user: 'sysdba', password: '' }
+  });
   const { toast } = useToast();
+
+  const checkServerStatus = async () => {
+    setCheckingStatus(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-firebird', {
+        body: { action: 'status' }
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        setServerStatus(data.data);
+      } else {
+        throw new Error(data.message);
+      }
+    } catch (error) {
+      console.error('Error checking server status:', error);
+      toast({
+        title: "Error",
+        description: "Failed to check server status",
+        variant: "destructive",
+      });
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
+
+  const updateServerConfig = async (server: 'A' | 'B', config: ServerConfig) => {
+    try {
+      // Update the corresponding secrets
+      const secretPrefix = server === 'A' ? 'FIREBIRD_A' : 'FIREBIRD_B';
+      
+      // Note: In a real implementation, you would need to call individual secret update functions
+      // For now, we'll just update the local state and show a message
+      setServerConfigs(prev => ({
+        ...prev,
+        [`server${server}`]: config
+      }));
+
+      toast({
+        title: "Configuration Updated",
+        description: `Server ${server} configuration has been updated locally. Please update the secrets in Supabase manually.`,
+      });
+      
+      setConfigDialogOpen(false);
+    } catch (error) {
+      console.error('Error updating server config:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update server configuration",
+        variant: "destructive",
+      });
+    }
+  };
 
   const fetchTablesInfo = async () => {
     setLoadingTables(true);
@@ -126,6 +208,7 @@ export function FirebirdSyncDashboard() {
   useEffect(() => {
     fetchSyncLogs();
     fetchTablesInfo();
+    checkServerStatus();
   }, []);
 
   const getStatusBadge = (status: string) => {
@@ -211,6 +294,222 @@ export function FirebirdSyncDashboard() {
               </CardContent>
             </Card>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Server Status and Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5" />
+            Server Status & Configuration
+          </CardTitle>
+          <CardDescription>
+            Monitor server connections and update configurations
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-4 mb-4">
+            <Button variant="outline" onClick={checkServerStatus} disabled={checkingStatus}>
+              {checkingStatus ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              {checkingStatus ? 'Checking...' : 'Check Status'}
+            </Button>
+            
+            <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Configure Servers
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Server Configuration</DialogTitle>
+                  <DialogDescription>
+                    Update the connection settings for Firebird servers
+                  </DialogDescription>
+                </DialogHeader>
+                <Tabs value={`server${selectedServer}`} onValueChange={(value) => setSelectedServer(value.slice(-1) as 'A' | 'B')}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="serverA">Server A</TabsTrigger>
+                    <TabsTrigger value="serverB">Server B</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="serverA" className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="hostA">Host</Label>
+                      <Input
+                        id="hostA"
+                        value={serverConfigs.serverA.host}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverA: { ...prev.serverA, host: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="portA">Port</Label>
+                      <Input
+                        id="portA"
+                        value={serverConfigs.serverA.port}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverA: { ...prev.serverA, port: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="userA">User</Label>
+                      <Input
+                        id="userA"
+                        value={serverConfigs.serverA.user}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverA: { ...prev.serverA, user: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="passwordA">Password</Label>
+                      <Input
+                        id="passwordA"
+                        type="password"
+                        value={serverConfigs.serverA.password}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverA: { ...prev.serverA, password: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <Button onClick={() => updateServerConfig('A', serverConfigs.serverA)}>
+                      Update Server A
+                    </Button>
+                  </TabsContent>
+                  <TabsContent value="serverB" className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="hostB">Host</Label>
+                      <Input
+                        id="hostB"
+                        value={serverConfigs.serverB.host}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverB: { ...prev.serverB, host: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="portB">Port</Label>
+                      <Input
+                        id="portB"
+                        value={serverConfigs.serverB.port}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverB: { ...prev.serverB, port: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="userB">User</Label>
+                      <Input
+                        id="userB"
+                        value={serverConfigs.serverB.user}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverB: { ...prev.serverB, user: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="passwordB">Password</Label>
+                      <Input
+                        id="passwordB"
+                        type="password"
+                        value={serverConfigs.serverB.password}
+                        onChange={(e) => setServerConfigs(prev => ({
+                          ...prev,
+                          serverB: { ...prev.serverB, password: e.target.value }
+                        }))}
+                      />
+                    </div>
+                    <Button onClick={() => updateServerConfig('B', serverConfigs.serverB)}>
+                      Update Server B
+                    </Button>
+                  </TabsContent>
+                </Tabs>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {serverStatus ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm font-medium">Server A</span>
+                    </div>
+                    {serverStatus.serverA.online ? (
+                      <div className="flex items-center gap-1 text-green-600">
+                        <Wifi className="h-4 w-4" />
+                        <Badge variant="secondary" className="bg-green-100 text-green-800">Online</Badge>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-red-600">
+                        <WifiOff className="h-4 w-4" />
+                        <Badge variant="destructive">Offline</Badge>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{serverStatus.serverA.host}</p>
+                  {serverStatus.serverA.responseTime && (
+                    <p className="text-xs text-muted-foreground">Response: {serverStatus.serverA.responseTime}ms</p>
+                  )}
+                  {serverStatus.serverA.error && (
+                    <p className="text-xs text-destructive mt-1">{serverStatus.serverA.error}</p>
+                  )}
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Database className="h-4 w-4 text-green-500" />
+                      <span className="text-sm font-medium">Server B</span>
+                    </div>
+                    {serverStatus.serverB.online ? (
+                      <div className="flex items-center gap-1 text-green-600">
+                        <Wifi className="h-4 w-4" />
+                        <Badge variant="secondary" className="bg-green-100 text-green-800">Online</Badge>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-red-600">
+                        <WifiOff className="h-4 w-4" />
+                        <Badge variant="destructive">Offline</Badge>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{serverStatus.serverB.host}</p>
+                  {serverStatus.serverB.responseTime && (
+                    <p className="text-xs text-muted-foreground">Response: {serverStatus.serverB.responseTime}ms</p>
+                  )}
+                  {serverStatus.serverB.error && (
+                    <p className="text-xs text-destructive mt-1">{serverStatus.serverB.error}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No server status information</p>
+              <p className="text-sm">Click "Check Status" to verify server connections</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

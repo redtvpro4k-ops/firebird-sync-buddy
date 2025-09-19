@@ -74,6 +74,42 @@ class FirebirdClient {
   }
 }
 
+async function checkServerStatus(config: FirebirdConfig): Promise<{ success: boolean; online: boolean; error?: string; responseTime?: number }> {
+  const startTime = Date.now();
+  let conn: Deno.TcpConn | null = null;
+  
+  try {
+    const client = new FirebirdClient(config);
+    conn = await client.connect();
+    
+    const responseTime = Date.now() - startTime;
+    
+    return {
+      success: true,
+      online: true,
+      responseTime
+    };
+    
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`Server status check failed: ${error.message}`);
+    return {
+      success: false,
+      online: false,
+      error: error.message,
+      responseTime
+    };
+  } finally {
+    if (conn) {
+      try {
+        conn.close();
+      } catch (e) {
+        console.error('Error closing connection:', e);
+      }
+    }
+  }
+}
+
 async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean; tables: any[]; error?: string }> {
   let conn: Deno.TcpConn | null = null;
   
@@ -302,8 +338,7 @@ serve(async (req) => {
   }
 
   try {
-    const url = new URL(req.url);
-    const action = url.searchParams.get('action') || 'sync';
+    const { action } = await req.json().catch(() => ({ action: 'sync' }));
     
     console.log(`Firebird function called with action: ${action}`);
 
@@ -329,6 +364,30 @@ serve(async (req) => {
     switch (action) {
       case 'sync':
         result = await syncDatabases();
+        break;
+        
+      case 'status':
+        const sourceStatusResult = await checkServerStatus(sourceConfig);
+        const targetStatusResult = await checkServerStatus(targetConfig);
+        
+        result = {
+          success: true,
+          message: 'Server status checked',
+          data: {
+            serverA: {
+              host: `${sourceConfig.host}:${sourceConfig.port}`,
+              online: sourceStatusResult.online,
+              responseTime: sourceStatusResult.responseTime,
+              error: sourceStatusResult.error
+            },
+            serverB: {
+              host: `${targetConfig.host}:${targetConfig.port}`,
+              online: targetStatusResult.online,
+              responseTime: targetStatusResult.responseTime,
+              error: targetStatusResult.error
+            }
+          }
+        };
         break;
         
       case 'tables':
