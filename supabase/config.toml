@@ -1,1 +1,4 @@
 project_id = "hkmfsfxpywdoziriftok"
+
+[functions.sync-firebird]
+verify_jwt = false
