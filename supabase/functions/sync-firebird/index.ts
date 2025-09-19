@@ -212,6 +212,58 @@ async function getTablesInfo(config: FirebirdConfig): Promise<{ success: boolean
   }
 }
 
+async function checkAndNotifyServerStatus(serverAConfig: FirebirdConfig, serverBConfig: FirebirdConfig) {
+  try {
+    console.log("Checking server status for notifications...");
+    const serverAStatus = await checkServerStatus(serverAConfig);
+    const serverBStatus = await checkServerStatus(serverBConfig);
+    
+    // Check if any server is offline
+    if (!serverAStatus.online || !serverBStatus.online) {
+      console.log("Offline servers detected, sending notification...");
+      
+      // Call notification function
+      const notificationResponse = await fetch('https://hkmfsfxpywdoziriftok.supabase.co/functions/v1/notify-server-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`
+        },
+        body: JSON.stringify({
+          serverA: {
+            server: 'Server A',
+            host: serverAConfig.host,
+            port: serverAConfig.port.toString(),
+            isOnline: serverAStatus.online,
+            responseTime: serverAStatus.responseTime,
+            error: serverAStatus.error
+          },
+          serverB: {
+            server: 'Server B', 
+            host: serverBConfig.host,
+            port: serverBConfig.port.toString(),
+            isOnline: serverBStatus.online,
+            responseTime: serverBStatus.responseTime,
+            error: serverBStatus.error
+          },
+          recipientEmail: 'tecnologia@tacobell.com.do'
+        })
+      });
+      
+      if (notificationResponse.ok) {
+        console.log("Notification sent successfully");
+      } else {
+        console.error("Failed to send notification:", await notificationResponse.text());
+      }
+    }
+    
+    return { serverAStatus, serverBStatus };
+  } catch (error) {
+    console.error("Error in checkAndNotifyServerStatus:", error);
+    return null;
+  }
+}
+
 async function syncDatabases(): Promise<{ success: boolean; message: string; details?: any }> {
   let sourceConn: Deno.TcpConn | null = null;
   let targetConn: Deno.TcpConn | null = null;
@@ -370,6 +422,9 @@ serve(async (req) => {
         const sourceStatusResult = await checkServerStatus(sourceConfig);
         const targetStatusResult = await checkServerStatus(targetConfig);
         
+        // Check and send notifications if needed
+        await checkAndNotifyServerStatus(sourceConfig, targetConfig);
+        
         result = {
           success: true,
           message: 'Server status checked',
@@ -446,5 +501,7 @@ serve(async (req) => {
         status: 500,
       }
     );
+  }
+});
   }
 });
