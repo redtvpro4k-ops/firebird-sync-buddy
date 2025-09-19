@@ -400,7 +400,7 @@ serve(async (req) => {
     const sourceConfig: FirebirdConfig = {
       host: Deno.env.get('FIREBIRD_A_HOST') || '',
       port: parseInt(Deno.env.get('FIREBIRD_A_PORT') || '3050'),
-      database: 'database.fdb', // You may need to adjust this
+      database: '/dbs/fdb/bell.fdb',
       user: Deno.env.get('FIREBIRD_A_USER') || '',
       password: Deno.env.get('FIREBIRD_A_PASSWORD') || '',
     };
@@ -408,13 +408,13 @@ serve(async (req) => {
     const targetConfig: FirebirdConfig = {
       host: Deno.env.get('FIREBIRD_B_HOST') || '',
       port: parseInt(Deno.env.get('FIREBIRD_B_PORT') || '3050'),
-      database: 'database.fdb', // You may need to adjust this
+      database: '/dbs/fdb/bell.fdb',
       user: Deno.env.get('FIREBIRD_B_USER') || '',
       password: Deno.env.get('FIREBIRD_B_PASSWORD') || '',
     };
 
-    console.log(`Server A config: ${sourceConfig.host}:${sourceConfig.port} (user: ${sourceConfig.user})`);
-    console.log(`Server B config: ${targetConfig.host}:${targetConfig.port} (user: ${targetConfig.user})`);
+    console.log(`Server A config: ${sourceConfig.host}:${sourceConfig.port} DB: ${sourceConfig.database} (user: ${sourceConfig.user})`);
+    console.log(`Server B config: ${targetConfig.host}:${targetConfig.port} DB: ${targetConfig.database} (user: ${targetConfig.user})`);
 
     // Validate configurations
     if (!sourceConfig.host || !sourceConfig.user || !sourceConfig.password) {
