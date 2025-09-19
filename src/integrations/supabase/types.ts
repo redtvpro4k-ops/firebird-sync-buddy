@@ -154,6 +154,33 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_logs: {
+        Row: {
+          created_at: string
+          details: Json | null
+          id: string
+          message: string | null
+          status: string
+          sync_type: string
+        }
+        Insert: {
+          created_at?: string
+          details?: Json | null
+          id?: string
+          message?: string | null
+          status: string
+          sync_type?: string
+        }
+        Update: {
+          created_at?: string
+          details?: Json | null
+          id?: string
+          message?: string | null
+          status?: string
+          sync_type?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
