@@ -98,32 +98,77 @@ export function FirebirdSyncDashboard() {
     setCheckingStatus(true);
     try {
       console.log('Checking server status...');
-      const { data, error } = await supabase.functions.invoke('sync-firebird', {
+      
+      // Add timeout to the function call
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout: La función tardó más de 30 segundos en responder')), 30000);
+      });
+
+      const functionCall = supabase.functions.invoke('sync-firebird', {
         body: { action: 'status' }
       });
+
+      const { data, error } = await Promise.race([functionCall, timeoutPromise]) as any;
 
       console.log('Server status response:', { data, error });
 
       if (error) {
         console.error('Supabase function error:', error);
-        throw new Error(`Function error: ${error.message || JSON.stringify(error)}`);
+        
+        // Provide more specific error messages
+        if (error.message?.includes('Failed to send a request')) {
+          throw new Error('No se pudo conectar con el servicio de verificación. Verifique su conexión a internet.');
+        } else if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
+          throw new Error('La verificación está tardando demasiado. Los servidores Firebird podrían estar desconectados.');
+        } else {
+          throw new Error(`Error del servicio: ${error.message || JSON.stringify(error)}`);
+        }
       }
 
       if (!data) {
-        throw new Error('No data received from server status check');
+        throw new Error('No se recibieron datos del servicio de verificación');
       }
 
       if (data.success) {
         console.log('Server status data:', data.data);
         setServerStatus(data.data);
+        
+        // Show success message if both servers are online
+        const { serverA, serverB } = data.data;
+        if (serverA.online && serverB.online) {
+          toast({
+            title: "Estado Verificado",
+            description: "Ambos servidores están en línea y funcionando correctamente",
+          });
+        } else {
+          const offlineServers = [];
+          if (!serverA.online) offlineServers.push('Servidor A');
+          if (!serverB.online) offlineServers.push('Servidor B');
+          
+          toast({
+            title: "Servidores Desconectados",
+            description: `${offlineServers.join(' y ')} no ${offlineServers.length > 1 ? 'están' : 'está'} respondiendo`,
+            variant: "destructive",
+          });
+        }
       } else {
-        throw new Error(data.message || 'Server status check failed without specific error');
+        throw new Error(data.message || 'La verificación falló sin un error específico');
       }
     } catch (error) {
       console.error('Error checking server status:', error);
+      
+      // Show different error messages based on error type
+      let errorMessage = 'Error desconocido al verificar servidores';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
       toast({
-        title: "Error de Conexión",
-        description: `Error al verificar servidores: ${error.message || error}`,
+        title: "Error de Verificación",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

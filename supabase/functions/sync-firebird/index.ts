@@ -80,9 +80,18 @@ async function checkServerStatus(config: FirebirdConfig): Promise<{ success: boo
   
   try {
     const client = new FirebirdClient(config);
-    conn = await client.connect();
+    
+    // Set a shorter timeout for connection attempts (10 seconds instead of default)
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000);
+    });
+    
+    const connectPromise = client.connect();
+    conn = await Promise.race([connectPromise, timeoutPromise]);
     
     const responseTime = Date.now() - startTime;
+    
+    console.log(`Successfully connected to ${config.host}:${config.port} in ${responseTime}ms`);
     
     return {
       success: true,
@@ -92,11 +101,21 @@ async function checkServerStatus(config: FirebirdConfig): Promise<{ success: boo
     
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    console.error(`Server status check failed: ${error.message}`);
+    console.error(`Server status check failed for ${config.host}:${config.port}:`, error.message);
+    
+    let errorMessage = error.message;
+    if (errorMessage.includes('Connection timed out') || errorMessage.includes('timeout')) {
+      errorMessage = `Connection timeout to ${config.host}:${config.port} - Server may be offline or unreachable`;
+    } else if (errorMessage.includes('Connection refused')) {
+      errorMessage = `Connection refused by ${config.host}:${config.port} - Service may be down`;
+    } else if (errorMessage.includes('No route to host')) {
+      errorMessage = `No route to host ${config.host} - Network connectivity issue`;
+    }
+    
     return {
       success: false,
       online: false,
-      error: error.message,
+      error: errorMessage,
       responseTime
     };
   } finally {
